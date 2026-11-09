@@ -1,0 +1,32 @@
+// Failed logons, Windows Event ID 4625.
+// Starter query for the home SOC lab. It returns rows only after your VM has sent SecurityEvent data.
+// Change ago(1d) to the length of the window you actually collected.
+// Leave Network Level Authentication on. Failed RDP attempts are then usually logon type 3.
+// A successful RDP session is logon type 10, which is a different query.
+// The status labels are the public Windows logon status codes, used only to name a SubStatus value.
+// If ipv4_is_private is not recognised, filter 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, and 127.0.0.0/8 with ipv4_is_in_range.
+SecurityEvent
+| where TimeGenerated > ago(1d)
+| where EventID == 4625
+| where LogonType in (3, 10)
+| where isnotempty(IpAddress) and IpAddress != "-"
+| extend PrivateAddress = ipv4_is_private(IpAddress)
+| where PrivateAddress == false
+| extend SubStatusKey = tolower(tostring(SubStatus))
+| lookup kind=leftouter (
+    datatable(SubStatusKey:string, FailureReasonLabel:string)
+    [
+        "0xc0000064", "Unknown user name",
+        "0xc000006a", "Wrong password",
+        "0xc000006d", "Logon failure",
+        "0xc000006e", "Account restriction",
+        "0xc000006f", "Outside allowed hours",
+        "0xc0000071", "Password expired",
+        "0xc0000072", "Account disabled",
+        "0xc000015b", "Logon type not granted",
+        "0xc0000193", "Account expired",
+        "0xc0000234", "Account locked out"
+    ]
+) on SubStatusKey
+| project TimeGenerated, Computer, Account, TargetUserName, LogonType, IpAddress, IpPort, SubStatus, FailureReasonLabel
+| order by TimeGenerated desc

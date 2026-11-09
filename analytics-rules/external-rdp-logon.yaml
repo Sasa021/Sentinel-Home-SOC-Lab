@@ -1,0 +1,79 @@
+# Documented scheduled analytics rule for the home SOC lab.
+# Create it in the portal. This file is not deployed by itself.
+# This rule also matches your own RDP sessions until you exclude your management IP.
+# Do not commit your real IP. Keep the exclusion only in the Sentinel rule.
+# ATT&CK: T1133 External Remote Services, T1078 Valid Accounts, T1021.001 Remote Desktop Protocol.
+# On this standalone honeypot, T1021.001 records the RDP logon. It is not movement inside a larger network.
+id: cab968cc-245b-4c6c-ab2b-07cf0b998ae6
+name: Lab successful RDP logon from a public IP
+description: |
+  Alerts on a successful remote interactive logon (Event ID 4624, logon type 10) from a public IP address.
+  Your own setup and self test will match until you exclude your management IP in the rule query.
+  An unknown source is a logon you did not make. Close port 3389, keep the event, and delete the resource group when you have the screenshot.
+severity: High
+requiredDataConnectors:
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 15m
+queryPeriod: 15m
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - InitialAccess
+  - Persistence
+  - LateralMovement
+relevantTechniques:
+  - T1133
+  - T1078
+  - T1021.001
+query: |
+  SecurityEvent
+  | where EventID == 4624
+  | where LogonType == 10
+  | where isnotempty(IpAddress) and IpAddress != "-"
+  | where ipv4_is_private(IpAddress) == false
+  // After you know your management IP, uncomment the next line in the portal rule and put that address there.
+  // Do not copy the address back into this git file.
+  // | where IpAddress != "YOUR.MANAGEMENT.IP"
+  | extend AccountParts = split(Account, @"\")
+  | extend NTDomain = tostring(AccountParts[0])
+  | extend AccountName = tostring(AccountParts[1])
+  | extend LogonTypeText = tostring(LogonType)
+  | project TimeGenerated, Account, AccountName, NTDomain, Computer, IpAddress, LogonType, LogonTypeText
+eventGroupingSettings:
+  aggregationKind: AlertPerResult
+customDetails:
+  LogonType: LogonTypeText
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: Account
+      - identifier: Name
+        columnName: AccountName
+      - identifier: NTDomain
+        columnName: NTDomain
+  - entityType: Host
+    fieldMappings:
+      - identifier: FullName
+        columnName: Computer
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: IpAddress
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 6h
+    matchingMethod: Selected
+    groupByEntities:
+      - Account
+      - IP
+    groupByAlertDetails: []
+    groupByCustomDetails: []
+version: 1.0.0
+kind: Scheduled
+status: Available

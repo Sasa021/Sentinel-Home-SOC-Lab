@@ -1,0 +1,115 @@
+{
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json",
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Honeypot attack map\n\nSkeleton workbook for the home SOC lab. The map uses failed logons (Event ID 4625, logon type 3 or 10) from public IP addresses in the `SecurityEvent` table, located with `geo_info_from_ip_address()`.\n\nUntil your VM has sent those events, the tiles show the empty message. Leave that empty state in the screenshot if that is what you got. Do not paste sample rows to make the map look busy.\n\nIP geolocation is approximate. Time in the queries follows the workbook time range. `TimeGenerated` is stored in UTC.\n\nSave this workbook in the resource group `rg-home-soc-lab` so it is deleted with the rest of the lab."
+      },
+      "name": "intro"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "98602bc1-8694-4815-b66d-441bf87282a8",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 86400000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 3600000
+                },
+                {
+                  "durationMs": 14400000
+                },
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 604800000
+                }
+              ],
+              "allowCustom": true
+            }
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "SecurityEvent\n| where EventID == 4625\n| where LogonType in (3, 10)\n| where isnotempty(IpAddress) and IpAddress != \"-\"\n| where ipv4_is_private(IpAddress) == false\n| extend Geo = geo_info_from_ip_address(IpAddress)\n| extend Country = tostring(Geo.country)\n| extend City = tostring(Geo.city)\n| extend Latitude = toreal(Geo.latitude)\n| extend Longitude = toreal(Geo.longitude)\n| where isnotnull(Latitude) and isnotnull(Longitude)\n| summarize FailedLogons = count() by IpAddress, Country, City, Latitude, Longitude\n| order by FailedLogons desc\n",
+        "size": 1,
+        "title": "Failed logons by source location",
+        "noDataMessage": "No failed public logons with a latitude and longitude in this time range. That is a valid empty state.",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "map",
+        "mapSettings": {
+          "locInfo": "LatLong",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "sizeSettings": "FailedLogons",
+          "sizeAggregation": "Sum",
+          "labelSettings": "Country",
+          "itemColorSettings": {
+            "nodeColorField": "FailedLogons",
+            "colorAggregation": "Sum",
+            "type": "heatmap",
+            "heatmapPalette": "greenRed"
+          }
+        }
+      },
+      "name": "map"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "SecurityEvent\n| where EventID == 4625\n| where LogonType in (3, 10)\n| where isnotempty(IpAddress) and IpAddress != \"-\"\n| where ipv4_is_private(IpAddress) == false\n| summarize FailedLogons = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by IpAddress, Computer\n| top 20 by FailedLogons desc\n",
+        "size": 0,
+        "title": "Top public sources by failed logons",
+        "noDataMessage": "No failed public logons in this time range.",
+        "timeContextFromParameter": "TimeRange",
+        "exportedParameters": [],
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "top-sources"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "SecurityEvent\n| where EventID == 4624\n| where LogonType == 10\n| where isnotempty(IpAddress) and IpAddress != \"-\"\n| where ipv4_is_private(IpAddress) == false\n| summarize SuccessfulRdp = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by IpAddress, Account, Computer\n| order by SuccessfulRdp desc\n",
+        "size": 0,
+        "title": "Successful RDP logons from public IPs",
+        "noDataMessage": "No successful public RDP logons in this time range. Your self test appears here only after a type 10 logon is collected.",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "successful-rdp"
+    }
+  ],
+  "styleSettings": {},
+  "isLocked": false
+}

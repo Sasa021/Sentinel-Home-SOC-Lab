@@ -1,0 +1,18 @@
+// Failed logons grouped by source IP.
+// The threshold of 20 is a starting point for a short lab, not a tuned baseline.
+// Change it after you see how noisy your own VM is, and record the number you used.
+// An empty result is valid. Do not invent rows to fill a screenshot.
+SecurityEvent
+| where TimeGenerated > ago(1d)
+| where EventID == 4625
+| where LogonType in (3, 10)
+| where isnotempty(IpAddress) and IpAddress != "-"
+| where ipv4_is_private(IpAddress) == false
+| summarize
+    FailedLogons = count(),
+    Accounts = make_set(Account, 20),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by IpAddress, Computer
+| where FailedLogons >= 20
+| order by FailedLogons desc
