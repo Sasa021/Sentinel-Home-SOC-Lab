@@ -1,0 +1,22 @@
+# Secrets and sign in material. Never commit these.
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.cer
+*.p12
+*.publishsettings
+.azure/
+
+# Raw exports often contain IP addresses, tenant IDs, emails, and account names.
+exports/
+*.har
+*.csv
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

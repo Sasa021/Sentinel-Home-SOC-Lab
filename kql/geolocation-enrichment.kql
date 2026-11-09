@@ -1,0 +1,69 @@
+// Geolocation enrichment for public failed logons.
+// Run this from Microsoft Sentinel, Logs. Pick the law-home-soc-lab workspace.
+// Three approaches are below. Use Approach A unless you are practising watchlists.
+// None of these queries ship location data. They return rows only from your SecurityEvent table.
+// IP geolocation is approximate. Do not treat a city result as a street address.
+// TimeGenerated is UTC.
+
+// -----------------------------------------------------------------------------
+// Approach A. Built in lookup, geo_info_from_ip_address()
+// Documented for Microsoft Sentinel and Azure Monitor.
+// It uses the GeoLite2 city data that the KQL function already includes.
+// You do not upload a database and you do not pay a third party.
+// -----------------------------------------------------------------------------
+SecurityEvent
+| where TimeGenerated > ago(1d)
+| where EventID == 4625
+| where LogonType in (3, 10)
+| where isnotempty(IpAddress) and IpAddress != "-"
+| where ipv4_is_private(IpAddress) == false
+| extend Geo = geo_info_from_ip_address(IpAddress)
+| extend Country = tostring(Geo.country)
+| extend State = tostring(Geo.state)
+| extend City = tostring(Geo.city)
+| extend Latitude = toreal(Geo.latitude)
+| extend Longitude = toreal(Geo.longitude)
+| summarize FailedLogons = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
+    by IpAddress, Country, State, City, Latitude, Longitude, Computer
+| order by FailedLogons desc
+
+// -----------------------------------------------------------------------------
+// Approach B. Sentinel watchlist, exact IP match.
+// Create the watchlist yourself. Steps are in docs/lab-guide.md.
+// Alias: GeoIP
+// CSV header, saved only on your machine, not in git:
+// SearchKey,Country,City,Latitude,Longitude
+// SearchKey is one public IP per row, copied from your own query results.
+// Do not commit that CSV. .gitignore already ignores *.csv.
+// Uncomment this block and comment out Approach A when the watchlist exists.
+// An empty Country column means that IP is not on the watchlist yet.
+// -----------------------------------------------------------------------------
+// let Geo = _GetWatchlist("GeoIP")
+// | project SearchKey, Country, City, Latitude = toreal(Latitude), Longitude = toreal(Longitude);
+// SecurityEvent
+// | where TimeGenerated > ago(1d)
+// | where EventID == 4625
+// | where LogonType in (3, 10)
+// | where isnotempty(IpAddress) and IpAddress != "-"
+// | where ipv4_is_private(IpAddress) == false
+// | join kind=leftouter (Geo) on $left.IpAddress == $right.SearchKey
+// | project TimeGenerated, Computer, Account, IpAddress, Country, City, Latitude, Longitude
+
+// -----------------------------------------------------------------------------
+// Approach C. ipv4_lookup for CIDR ranges.
+// The plugin is documented for Azure Data Explorer and Microsoft Fabric.
+// Sentinel Logs may accept it. If you get a syntax error, stay with Approach A or B.
+// Replace the documentation range below with CIDR rows you looked up yourself.
+// 203.0.113.0/24 is TEST-NET-3 from RFC 5737. It is not a location feed and it will not match real scanners.
+// Do not point external_data at a downloaded GeoIP file in this lab.
+// -----------------------------------------------------------------------------
+// let Ranges = datatable(network:string, Note:string)
+// [
+//     "203.0.113.0/24", "TEST-NET-3 documentation range. Replace this row with ranges you looked up."
+// ];
+// SecurityEvent
+// | where TimeGenerated > ago(1d)
+// | where EventID == 4625
+// | where isnotempty(IpAddress) and IpAddress != "-"
+// | evaluate ipv4_lookup(Ranges, IpAddress, network, return_unmatched = true)
+// | project TimeGenerated, Computer, Account, IpAddress, network, Note

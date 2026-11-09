@@ -1,0 +1,87 @@
+# Documented scheduled analytics rule for the home SOC lab.
+# Create it in the portal. This file is not deployed by itself.
+# A match can be your own self test. Say so in the report.
+# ATT&CK: T1078 Valid Accounts, T1078.003 Local Accounts, T1110 Brute Force.
+id: ec561cf8-be25-4d29-b29b-3d2e8f5cca7e
+name: Lab successful RDP logon after failed logons
+description: |
+  Alerts when a public RDP logon succeeds (Event ID 4624, logon type 10) for an account that had failed logons (Event ID 4625) in the lookback window.
+  The query period is 2 hours so a success can be compared with failures from the previous hour.
+  Treat an unknown success as a real logon to your VM. Close port 3389 and follow the response steps in the lab guide.
+  If the success is your self test, close the incident and write that in the report.
+severity: High
+requiredDataConnectors:
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 15m
+queryPeriod: 2h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - InitialAccess
+  - CredentialAccess
+relevantTechniques:
+  - T1078
+  - T1078.003
+  - T1110
+query: |
+  let failures = SecurityEvent
+  | where EventID == 4625
+  | where LogonType in (3, 10)
+  | where isnotempty(Account)
+  | project FailureTime = TimeGenerated, Account, Computer, FailedIp = IpAddress;
+  let successes = SecurityEvent
+  | where EventID == 4624
+  | where LogonType == 10
+  | where isnotempty(IpAddress) and IpAddress != "-"
+  | where ipv4_is_private(IpAddress) == false
+  | project SuccessTime = TimeGenerated, Account, Computer, IpAddress;
+  successes
+  | join kind=inner (failures) on Account, Computer
+  | where FailureTime between (SuccessTime - 1h .. SuccessTime)
+  | summarize
+      FailureCount = count(),
+      FailedFrom = make_set(FailedIp, 20),
+      FirstFailure = min(FailureTime)
+      by SuccessTime, Account, Computer, IpAddress
+  | extend AccountParts = split(Account, @"\")
+  | extend NTDomain = tostring(AccountParts[0])
+  | extend AccountName = tostring(AccountParts[1])
+  | extend FailureCountText = tostring(FailureCount)
+eventGroupingSettings:
+  aggregationKind: AlertPerResult
+customDetails:
+  FailureCount: FailureCountText
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: Account
+      - identifier: Name
+        columnName: AccountName
+      - identifier: NTDomain
+        columnName: NTDomain
+  - entityType: Host
+    fieldMappings:
+      - identifier: FullName
+        columnName: Computer
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: IpAddress
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 6h
+    matchingMethod: Selected
+    groupByEntities:
+      - Account
+      - IP
+    groupByAlertDetails: []
+    groupByCustomDetails: []
+version: 1.0.0
+kind: Scheduled
+status: Available

@@ -1,0 +1,66 @@
+# Documented scheduled analytics rule for the home SOC lab.
+# Create it in the portal. This file is not deployed by itself.
+# Thresholds are starting points. Tune them from your own events and record the change.
+# ATT&CK: T1110 Brute Force, T1110.001 Password Guessing. Tactic: Credential Access.
+id: 7d1cec55-1523-4ddd-ba68-d9a6574c2350
+name: Lab many failed RDP logons from one public IP
+description: |
+  Alerts when one public IP produces many failed logons (Event ID 4625, logon type 3 or 10) against the lab VM.
+  Logon type 3 is expected for failed RDP while Network Level Authentication stays on.
+  The count of 20 in the query is a starter threshold, not a measured baseline.
+  On a host that is open to the internet this rule can be noisy. Group incidents by IP and raise the threshold after you see your own volume.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1110
+  - T1110.001
+query: |
+  SecurityEvent
+  | where EventID == 4625
+  | where LogonType in (3, 10)
+  | where isnotempty(IpAddress) and IpAddress != "-"
+  | where ipv4_is_private(IpAddress) == false
+  | summarize
+      FailedLogons = count(),
+      Accounts = make_set(Account, 20),
+      FirstSeen = min(TimeGenerated),
+      LastSeen = max(TimeGenerated)
+      by IpAddress, Computer
+  | where FailedLogons >= 20
+  | extend FailedLogonsText = tostring(FailedLogons)
+eventGroupingSettings:
+  aggregationKind: AlertPerResult
+customDetails:
+  FailedLogons: FailedLogonsText
+entityMappings:
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: IpAddress
+  - entityType: Host
+    fieldMappings:
+      - identifier: FullName
+        columnName: Computer
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 6h
+    matchingMethod: Selected
+    groupByEntities:
+      - IP
+    groupByAlertDetails: []
+    groupByCustomDetails: []
+version: 1.0.0
+kind: Scheduled
+status: Available

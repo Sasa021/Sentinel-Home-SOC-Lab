@@ -1,0 +1,77 @@
+# Documented scheduled analytics rule for the home SOC lab.
+# Create it in the portal. This file is not deployed by itself.
+# ATT&CK: T1110 Brute Force, T1110.003 Password Spraying.
+# This VM has one lab account, so the behaviour is many sources guessing one name.
+# It is not evidence of a spray across many tenants. Describe it that way in the report.
+id: c219376f-5c98-4e07-866f-54b3cafecba0
+name: Lab failed logons for one account from many public IPs
+description: |
+  Alerts when one account on the lab VM receives failed logons (Event ID 4625, logon type 3 or 10) from at least 5 public IP addresses in the query window, with at least 20 failures.
+  Five sources and 20 failures are starter thresholds. Lower or raise them only from your own counts, and record the values you used.
+  An empty result is valid.
+severity: Medium
+requiredDataConnectors:
+  - connectorId: WindowsSecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1110
+  - T1110.003
+query: |
+  SecurityEvent
+  | where EventID == 4625
+  | where LogonType in (3, 10)
+  | where isnotempty(IpAddress) and IpAddress != "-"
+  | where ipv4_is_private(IpAddress) == false
+  | where isnotempty(Account)
+  | summarize
+      FailedLogons = count(),
+      SourceCount = dcount(IpAddress),
+      Sources = make_set(IpAddress, 20),
+      FirstSeen = min(TimeGenerated),
+      LastSeen = max(TimeGenerated)
+      by Account, Computer
+  | where SourceCount >= 5 and FailedLogons >= 20
+  | extend AccountParts = split(Account, @"\")
+  | extend NTDomain = tostring(AccountParts[0])
+  | extend AccountName = tostring(AccountParts[1])
+  | extend FailedLogonsText = tostring(FailedLogons)
+  | extend SourceCountText = tostring(SourceCount)
+eventGroupingSettings:
+  aggregationKind: AlertPerResult
+customDetails:
+  FailedLogons: FailedLogonsText
+  SourceCount: SourceCountText
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: Account
+      - identifier: Name
+        columnName: AccountName
+      - identifier: NTDomain
+        columnName: NTDomain
+  - entityType: Host
+    fieldMappings:
+      - identifier: FullName
+        columnName: Computer
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 6h
+    matchingMethod: Selected
+    groupByEntities:
+      - Account
+    groupByAlertDetails: []
+    groupByCustomDetails: []
+version: 1.0.0
+kind: Scheduled
+status: Available

@@ -1,0 +1,26 @@
+// Successful RDP logon (Event ID 4624, logon type 10) after failed logons for the same account.
+// A row can be your own self test. Mark self tests in the report.
+// Internet scans alone do not create a row unless a logon succeeds.
+// TimeGenerated in the result is the success time. Sentinel stores it in UTC.
+let windowStart = ago(1d);
+let failures = SecurityEvent
+    | where TimeGenerated > windowStart
+    | where EventID == 4625
+    | where LogonType in (3, 10)
+    | where isnotempty(Account)
+    | project FailureTime = TimeGenerated, Account, Computer, FailedIp = IpAddress;
+let successes = SecurityEvent
+    | where TimeGenerated > windowStart
+    | where EventID == 4624
+    | where LogonType == 10
+    | where isnotempty(IpAddress) and IpAddress != "-"
+    | project SuccessTime = TimeGenerated, Account, Computer, SuccessIp = IpAddress;
+successes
+| join kind=inner (failures) on Account, Computer
+| where FailureTime between (SuccessTime - 1h .. SuccessTime)
+| summarize
+    FailureCount = count(),
+    FailedFrom = make_set(FailedIp, 20),
+    FirstFailure = min(FailureTime)
+    by SuccessTime, Account, Computer, SuccessIp
+| order by SuccessTime desc
